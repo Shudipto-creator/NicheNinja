@@ -1,172 +1,198 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthState, User } from '@/types';
-import { mockData } from './mockData';
+import { supabase, getUserProfile } from '@/lib/supabase';
+import { User } from '@supabase/supabase-js';
+import { Database } from '@/types/supabase';
+
+type Profile = Database['public']['Tables']['profiles']['Row'];
+
+interface AuthState {
+  user: User | null;
+  profile: Profile | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+}
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  updateProfile: (updates: Partial<Profile>) => Promise<void>;
 }
 
-const initialState: AuthState = {
+const AuthContext = createContext<AuthContextType>({
   user: null,
+  profile: null,
   isAuthenticated: false,
   isLoading: true,
   error: null,
-};
-
-const AuthContext = createContext<AuthContextType>({
-  ...initialState,
   login: async () => {},
   register: async () => {},
-  logout: () => {},
+  logout: async () => {},
+  updateProfile: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [authState, setAuthState] = useState<AuthState>(initialState);
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    profile: null,
+    isAuthenticated: false,
+    isLoading: true,
+    error: null,
+  });
 
-  // Check if user is already logged in
   useEffect(() => {
-    const checkAuth = () => {
-      try {
-        const storedUser = localStorage.getItem('user');
-        if (storedUser) {
-          const user = JSON.parse(storedUser) as User;
-          setAuthState({
-            user,
+    // Check active sessions and sets up an auth state listener
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        getUserProfile(session.user.id)
+          .then((profile) => {
+            setState({
+              user: session.user,
+              profile,
+              isAuthenticated: true,
+              isLoading: false,
+              error: null,
+            });
+          })
+          .catch((error) => {
+            console.error('Error fetching user profile:', error);
+            setState({
+              user: session.user,
+              profile: null,
+              isAuthenticated: true,
+              isLoading: false,
+              error: 'Failed to load user profile',
+            });
+          });
+      } else {
+        setState({
+          user: null,
+          profile: null,
+          isAuthenticated: false,
+          isLoading: false,
+          error: null,
+        });
+      }
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        try {
+          const profile = await getUserProfile(session.user.id);
+          setState({
+            user: session.user,
+            profile,
             isAuthenticated: true,
             isLoading: false,
             error: null,
           });
-        } else {
-          setAuthState({
-            ...initialState,
+        } catch (error) {
+          console.error('Error fetching user profile:', error);
+          setState({
+            user: session.user,
+            profile: null,
+            isAuthenticated: true,
             isLoading: false,
+            error: 'Failed to load user profile',
           });
         }
-      } catch (error) {
-        setAuthState({
-          ...initialState,
-          isLoading: false,
-          error: 'Failed to restore authentication',
-        });
-      }
-    };
-
-    checkAuth();
-  }, []);
-
-  // Login function
-  const login = async (email: string, password: string) => {
-    setAuthState({
-      ...authState,
-      isLoading: true,
-      error: null,
-    });
-
-    try {
-      // This is a mock login - in a real app, this would call an API
-      // For demo purposes, we'll just check if the email matches our demo user
-      const user = mockData.users.find(u => u.email === email);
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      if (user && password === 'password') {
-        localStorage.setItem('user', JSON.stringify(user));
-        setAuthState({
-          user,
-          isAuthenticated: true,
+      } else {
+        setState({
+          user: null,
+          profile: null,
+          isAuthenticated: false,
           isLoading: false,
           error: null,
         });
-      } else {
-        setAuthState({
-          ...authState,
-          isLoading: false,
-          error: 'Invalid email or password',
-        });
       }
-    } catch (error) {
-      setAuthState({
-        ...authState,
-        isLoading: false,
-        error: 'Login failed. Please try again.',
-      });
-    }
-  };
-
-  // Register function
-  const register = async (name: string, email: string, password: string) => {
-    setAuthState({
-      ...authState,
-      isLoading: true,
-      error: null,
     });
 
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const login = async (email: string, password: string) => {
     try {
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // In a real app, this would call an API to register the user
-      // For demo purposes, we'll just return success if the email isn't already used
-      const existingUser = mockData.users.find(u => u.email === email);
-      
-      if (existingUser) {
-        setAuthState({
-          ...authState,
-          isLoading: false,
-          error: 'Email already in use',
-        });
-        return;
-      }
-      
-      const newUser: User = {
-        id: `user_${Date.now()}`,
-        email,
-        name,
-        createdAt: new Date().toISOString(),
-      };
-      
-      // In a real app, we would save this user to the database
-      // For now, we'll just simulate a successful registration
-      localStorage.setItem('user', JSON.stringify(newUser));
-      
-      setAuthState({
-        user: newUser,
-        isAuthenticated: true,
-        isLoading: false,
-        error: null,
-      });
+      setState({ ...state, isLoading: true, error: null });
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
     } catch (error) {
-      setAuthState({
-        ...authState,
+      console.error('Login error:', error);
+      setState({
+        ...state,
         isLoading: false,
-        error: 'Registration failed. Please try again.',
+        error: error instanceof Error ? error.message : 'Failed to login',
       });
     }
   };
 
-  // Logout function
-  const logout = () => {
-    localStorage.removeItem('user');
-    setAuthState({
-      user: null,
-      isAuthenticated: false,
-      isLoading: false,
-      error: null,
-    });
+  const register = async (name: string, email: string, password: string) => {
+    try {
+      setState({ ...state, isLoading: true, error: null });
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name,
+          },
+        },
+      });
+      if (error) throw error;
+    } catch (error) {
+      console.error('Registration error:', error);
+      setState({
+        ...state,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Failed to register',
+      });
+    }
+  };
+
+  const logout = async () => {
+    try {
+      setState({ ...state, isLoading: true, error: null });
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      console.error('Logout error:', error);
+      setState({
+        ...state,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Failed to logout',
+      });
+    }
+  };
+
+  const updateProfile = async (updates: Partial<Profile>) => {
+    try {
+      if (!state.user) throw new Error('No user logged in');
+      const updatedProfile = await updateUserProfile(state.user.id, updates);
+      setState({
+        ...state,
+        profile: updatedProfile,
+      });
+    } catch (error) {
+      console.error('Profile update error:', error);
+      setState({
+        ...state,
+        error: error instanceof Error ? error.message : 'Failed to update profile',
+      });
+    }
   };
 
   return (
     <AuthContext.Provider
       value={{
-        ...authState,
+        ...state,
         login,
         register,
         logout,
+        updateProfile,
       }}
     >
       {children}
