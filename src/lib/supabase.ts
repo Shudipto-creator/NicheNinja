@@ -1,17 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
 
+// Ensure environment variables are available
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Missing Supabase environment variables');
+  throw new Error('Missing Supabase environment variables. Please connect your Supabase project first.');
 }
 
-export const supabase = createClient<Database>(
-  supabaseUrl || '',
-  supabaseAnonKey || ''
-);
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
 // Helper function to get user profile
 export async function getUserProfile(userId: string) {
