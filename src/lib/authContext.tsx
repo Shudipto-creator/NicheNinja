@@ -127,13 +127,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading: false,
         error: error instanceof Error ? error.message : 'Failed to login',
       });
+      throw error; // Re-throw to handle in the component
     }
   };
 
   const register = async (name: string, email: string, password: string) => {
     try {
       setState({ ...state, isLoading: true, error: null });
-      const { error } = await supabase.auth.signUp({
+      const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -142,7 +143,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           },
         },
       });
-      if (error) throw error;
+      if (signUpError) throw signUpError;
     } catch (error) {
       console.error('Registration error:', error);
       setState({
@@ -150,6 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading: false,
         error: error instanceof Error ? error.message : 'Failed to register',
       });
+      throw error;
     }
   };
 
@@ -165,6 +167,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading: false,
         error: error instanceof Error ? error.message : 'Failed to logout',
       });
+      throw error;
     }
   };
 
@@ -182,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ...state,
         error: error instanceof Error ? error.message : 'Failed to update profile',
       });
+      throw error;
     }
   };
 
